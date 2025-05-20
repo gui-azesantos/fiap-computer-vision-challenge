@@ -1,8 +1,0 @@
-Total de frames analisados: 3326
-Número de anomalias detectadas: 51
-
-Resumo de emoções:
-
-Resumo de atividades:
-  parado: 2683
-  movimento_de_braços: 643

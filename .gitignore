@@ -1,4 +1,5 @@
-venv
+deepface_env
 output
 .vscode
 *.mp4
+*.xlsx

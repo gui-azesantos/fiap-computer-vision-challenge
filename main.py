@@ -3,52 +3,52 @@ from deepface import DeepFace
 import pandas as pd
 from tqdm import tqdm
 
-def analisar_video(input_path, output_path, excel_path):
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        print("Erro ao abrir o vídeo")
+
+def analyze_video(input_path, output_path, excel_path):
+    video = cv2.VideoCapture(input_path)
+    if not video.isOpened():
+        print("Error: Failed to open the video.")
         return
 
-    # Pegando propriedades do vídeo para salvar saída com mesmo padrão
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # Video properties
+    fps = video.get(cv2.CAP_PROP_FPS)
+    width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # Configurando o vídeo de saída
+    # Output video writer
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    output_video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    resultados = []
+    results = []
 
-    print(f"Processando vídeo: {frame_count} frames, {fps:.2f} FPS, resolução {width}x{height}")
+    print(f"Video info: {total_frames} frames | {fps:.2f} FPS | Resolution: {width}x{height}")
 
-    for frame_num in tqdm(range(frame_count), desc="Processando frames"):
-        ret, frame = cap.read()
+    for frame_number in tqdm(range(total_frames), desc="Analyzing frames"):
+        ret, frame = video.read()
         if not ret:
             break
 
-        # Análise facial e emoção via DeepFace
         try:
-            analise = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False)
-            if isinstance(analise, list):
-                analise = analise[0]  # Se tiver múltiplas faces
+            analysis = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False)
+            if isinstance(analysis, list):
+                analysis = analysis[0]
 
-            # Pega bounding box, emoção dominante e probabilidade
-            face_region = analise["region"]
-            dominant_emotion = analise["dominant_emotion"]
-            emotions = analise["emotion"]
+            # Extract data
+            region = analysis.get("region", {})
+            dominant_emotion = analysis.get("dominant_emotion", "unknown")
+            emotions = analysis.get("emotion", {})
 
-            # Desenha box e label
-            x, y, w, h = face_region["x"], face_region["y"], face_region["w"], face_region["h"]
+            x, y, w, h = region.get("x", 0), region.get("y", 0), region.get("w", 0), region.get("h", 0)
+
+            # Draw bounding box and label
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            label = f"{dominant_emotion} ({emotions.get(dominant_emotion, 0):.2f})"
+            cv2.putText(frame, label, (x, max(0, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-            label = f"{dominant_emotion} ({emotions[dominant_emotion]:.2f})"
-            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-
-            # Guarda dados para Excel
-            resultados.append({
-                "frame": frame_num,
+            # Append result
+            results.append({
+                "frame": frame_number,
                 "x": x,
                 "y": y,
                 "width": w,
@@ -58,25 +58,27 @@ def analisar_video(input_path, output_path, excel_path):
             })
 
         except Exception as e:
-            # Se não detectar rosto ou erro, só salvar frame sem box
-            resultados.append({"frame": frame_num})
+            # Append empty frame result
+            results.append({"frame": frame_number})
+            continue
 
-        # Salva frame anotado no vídeo de saída
-        out.write(frame)
+        output_video.write(frame)
 
-    cap.release()
-    out.release()
+    # Cleanup
+    video.release()
+    output_video.release()
 
-    # Exporta para Excel (sem índice)
-    df = pd.DataFrame(resultados)
+    # Save results to Excel
+    df = pd.DataFrame(results)
     df.to_excel(excel_path, index=False)
 
-    print(f"Análise salva em: {excel_path}")
-    print(f"Vídeo anotado salvo em: {output_path}")
+    print(f"Analysis saved to: {excel_path}")
+    print(f"Annotated video saved to: {output_path}")
+
 
 if __name__ == "__main__":
-    input_video = "input.mp4"          
-    output_video = "output_analise.mp4"
-    output_excel = "analise_video.xlsx"
+    input_video_path = "input.mp4"
+    annotated_video_path = "output_analysis.mp4"
+    excel_output_path = "video_analysis.xlsx"
 
-    analisar_video(input_video, output_video, output_excel)
+    analyze_video(input_video_path, annotated_video_path, excel_output_path)
