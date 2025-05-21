@@ -4,28 +4,25 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def analyze_video(input_path, output_path, excel_path):
+def analyze_video(input_path, output_path, excel_path, confidence_threshold=20):
     video = cv2.VideoCapture(input_path)
     if not video.isOpened():
         print("Error: Failed to open the video.")
         return
 
-    # Video properties
     fps = video.get(cv2.CAP_PROP_FPS)
     width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # Output video writer
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     output_video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     results = []
-    emotion_counts = {}
+    anom_count = 0
+    emotion_counter = {}
 
     print(f"Video info: {total_frames} frames | {fps:.2f} FPS | Resolution: {width}x{height}")
-
-    anomalies = 0
 
     for frame_number in tqdm(range(total_frames), desc="Analyzing frames"):
         ret, frame = video.read()
@@ -37,23 +34,28 @@ def analyze_video(input_path, output_path, excel_path):
             if isinstance(analysis, list):
                 analysis = analysis[0]
 
-            # Extract data
             region = analysis.get("region", {})
-            dominant_emotion = analysis.get("dominant_emotion", "unknown")
+            dominant_emotion = analysis.get("dominant_emotion", None)
             emotions = analysis.get("emotion", {})
+
+            if dominant_emotion:
+                confidence = emotions.get(dominant_emotion, 0)
+            else:
+                confidence = 0
+
+            if not dominant_emotion or confidence < confidence_threshold:
+                anom_count += 1
+                results.append({"frame": frame_number, "anomaly": True})
+                continue
+
+            emotion_counter[dominant_emotion] = emotion_counter.get(dominant_emotion, 0) + 1
 
             x, y, w, h = region.get("x", 0), region.get("y", 0), region.get("w", 0), region.get("h", 0)
 
-            # Draw bounding box and label
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            label = f"{dominant_emotion} ({emotions.get(dominant_emotion, 0):.2f})"
+            label = f"{dominant_emotion} ({confidence:.2f})"
             cv2.putText(frame, label, (x, max(0, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-            # Update emotion count
-            if dominant_emotion != "unknown":
-                emotion_counts[dominant_emotion] = emotion_counts.get(dominant_emotion, 0) + 1
-
-            # Append result
             results.append({
                 "frame": frame_number,
                 "x": x,
@@ -61,46 +63,48 @@ def analyze_video(input_path, output_path, excel_path):
                 "width": w,
                 "height": h,
                 "dominant_emotion": dominant_emotion,
+                "confidence": confidence,
+                "anomaly": False,
                 **emotions
             })
 
         except Exception as e:
-            anomalies += 1
-            # Append minimal result
-            results.append({
-                "frame": frame_number,
-                "error": str(e)
-            })
+            anom_count += 1
+            results.append({"frame": frame_number, "anomaly": True})
             continue
 
         output_video.write(frame)
 
-    # Cleanup
     video.release()
     output_video.release()
 
-    # Save results to Excel
+    # DataFrame
     df = pd.DataFrame(results)
 
-    # Create summary
+    # Summary statistics
+    total_frames_analyzed = len(df)
+    anom_percent = (anom_count / total_frames_analyzed) * 100
+
+    # Emotion percentages
+    total_detected = sum(emotion_counter.values())
+    emotion_percentages = {k: (v / total_detected) * 100 for k, v in emotion_counter.items()}
+
+    # Summary DataFrame
     summary_data = {
-        "Total Frames Analyzed": [total_frames],
-        "Number of Anomalies": [anomalies]
+        "Total Frames": [total_frames_analyzed],
+        "Anomalies": [anom_count],
+        "Anomaly %": [f"{anom_percent:.2f}%"]
     }
+
+    for emo, perc in emotion_percentages.items():
+        summary_data[f"{emo} %"] = [f"{perc:.2f}%"]
 
     summary_df = pd.DataFrame(summary_data)
 
-    # Emotion distribution
-    emotion_dist = pd.DataFrame([
-        {"Emotion": emotion, "Count": count, "Percentage": (count / (total_frames - anomalies)) * 100}
-        for emotion, count in emotion_counts.items()
-    ])
-
-    # Write to Excel with multiple sheets
+    # Excel writer
     with pd.ExcelWriter(excel_path) as writer:
-        df.to_excel(writer, sheet_name="Frame Analysis", index=False)
+        df.to_excel(writer, sheet_name="Detailed Results", index=False)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
-        emotion_dist.to_excel(writer, sheet_name="Emotion Distribution", index=False)
 
     print(f"Analysis saved to: {excel_path}")
     print(f"Annotated video saved to: {output_path}")
