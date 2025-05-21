@@ -21,8 +21,11 @@ def analyze_video(input_path, output_path, excel_path):
     output_video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     results = []
+    emotion_counts = {}
 
     print(f"Video info: {total_frames} frames | {fps:.2f} FPS | Resolution: {width}x{height}")
+
+    anomalies = 0
 
     for frame_number in tqdm(range(total_frames), desc="Analyzing frames"):
         ret, frame = video.read()
@@ -46,6 +49,10 @@ def analyze_video(input_path, output_path, excel_path):
             label = f"{dominant_emotion} ({emotions.get(dominant_emotion, 0):.2f})"
             cv2.putText(frame, label, (x, max(0, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
+            # Update emotion count
+            if dominant_emotion != "unknown":
+                emotion_counts[dominant_emotion] = emotion_counts.get(dominant_emotion, 0) + 1
+
             # Append result
             results.append({
                 "frame": frame_number,
@@ -58,8 +65,12 @@ def analyze_video(input_path, output_path, excel_path):
             })
 
         except Exception as e:
-            # Append empty frame result
-            results.append({"frame": frame_number})
+            anomalies += 1
+            # Append minimal result
+            results.append({
+                "frame": frame_number,
+                "error": str(e)
+            })
             continue
 
         output_video.write(frame)
@@ -70,7 +81,26 @@ def analyze_video(input_path, output_path, excel_path):
 
     # Save results to Excel
     df = pd.DataFrame(results)
-    df.to_excel(excel_path, index=False)
+
+    # Create summary
+    summary_data = {
+        "Total Frames Analyzed": [total_frames],
+        "Number of Anomalies": [anomalies]
+    }
+
+    summary_df = pd.DataFrame(summary_data)
+
+    # Emotion distribution
+    emotion_dist = pd.DataFrame([
+        {"Emotion": emotion, "Count": count, "Percentage": (count / (total_frames - anomalies)) * 100}
+        for emotion, count in emotion_counts.items()
+    ])
+
+    # Write to Excel with multiple sheets
+    with pd.ExcelWriter(excel_path) as writer:
+        df.to_excel(writer, sheet_name="Frame Analysis", index=False)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        emotion_dist.to_excel(writer, sheet_name="Emotion Distribution", index=False)
 
     print(f"Analysis saved to: {excel_path}")
     print(f"Annotated video saved to: {output_path}")
