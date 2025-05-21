@@ -47,7 +47,7 @@ source venv/bin/activate
    With your virtual environment activated, install the required libraries:
 
 ```bash
-pip install opencv-python deepface pandas tqdm tf-keras
+pip install opencv-python deepface pandas tqdm tf-keras mediapipe
 ```
 
 ### Usage
